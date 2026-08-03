@@ -3,6 +3,7 @@ import express, { Request, Response } from 'express'
 import { Connection, Client } from '@temporalio/client'
 import { verifyEmailWorkflow } from './workflows'
 import { generateMessageFromTemplate } from './utils/messageGenerator'
+import { normalizeYearsAtCompany, optionalString } from './utils/leadInput'
 import { runTemporalWorker } from './worker'
 const prisma = new PrismaClient()
 const app = express()
@@ -218,9 +219,18 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
 
     let importedCount = 0
     const errors: Array<{ lead: any; error: string }> = []
+    const warnings: Array<{ lead: unknown; warning: string }> = []
 
     for (const lead of uniqueLeads) {
       try {
+        // An unparseable tenure is a warning, never a reason to skip the lead.
+        const { value: yearsAtCompany, warning: yearsWarning } = normalizeYearsAtCompany(
+          lead.yearsAtCompany
+        )
+        if (yearsWarning) {
+          warnings.push({ lead, warning: yearsWarning })
+        }
+
         await prisma.lead.create({
           data: {
             firstName: lead.firstName.trim(),
@@ -229,6 +239,9 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
             jobTitle: lead.jobTitle ? lead.jobTitle.trim() : null,
             countryCode: lead.countryCode ? lead.countryCode.trim() : null,
             companyName: lead.companyName ? lead.companyName.trim() : null,
+            phone: optionalString(lead.phone),
+            yearsAtCompany,
+            linkedin: optionalString(lead.linkedin),
           },
         })
         importedCount++
@@ -246,6 +259,7 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
       duplicatesSkipped: validLeads.length - uniqueLeads.length,
       invalidLeads: leads.length - validLeads.length,
       errors,
+      warnings,
     })
   } catch (error) {
     console.error('Error importing leads:', error)

@@ -206,4 +206,35 @@ describe('generateMessageFromTemplate', () => {
       expect(result).toBe('Hi John 😊 from TechCorp 🚀!')
     })
   })
+
+  describe('newly added lead fields', () => {
+    const enrichedLead: Lead = {
+      firstName: 'Ada',
+      phone: '+1-555-0100',
+      yearsAtCompany: 4,
+      linkedin: 'https://www.linkedin.com/in/adalovelace',
+    }
+
+    it('should interpolate phone, yearsAtCompany and linkedin', () => {
+      const template = 'Call {firstName} on {phone} after {yearsAtCompany} years — {linkedin}'
+      const result = generateMessageFromTemplate(template, enrichedLead)
+      expect(result).toBe(
+        'Call Ada on +1-555-0100 after 4 years — https://www.linkedin.com/in/adalovelace'
+      )
+    })
+
+    it('should treat a tenure of zero as present, not missing', () => {
+      const result = generateMessageFromTemplate('{yearsAtCompany} years', {
+        firstName: 'Ada',
+        yearsAtCompany: 0,
+      })
+      expect(result).toBe('0 years')
+    })
+
+    it('should throw when a new field is missing', () => {
+      expect(() => generateMessageFromTemplate('{phone}', { firstName: 'Ada' })).toThrow(
+        'Missing required field: phone'
+      )
+    })
+  })
 })
