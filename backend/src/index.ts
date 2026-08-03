@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client'
 import express, { Request, Response } from 'express'
 import { Connection, Client } from '@temporalio/client'
 import { verifyEmailWorkflow } from './workflows'
+import type { EmailVerificationStatus } from './workflows/activities/providers/emailVerifier'
 import { generateMessageFromTemplate } from './utils/messageGenerator'
 import { runTemporalWorker } from './worker'
 const prisma = new PrismaClient()
@@ -277,34 +278,60 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
     const client = new Client({ connection, namespace: 'default' })
 
     let verifiedCount = 0
-    const results: Array<{ leadId: number; emailVerified: boolean }> = []
+    const results: Array<{
+      leadId: number
+      emailVerified: boolean | null
+      status: EmailVerificationStatus
+      reason: string
+    }> = []
     const errors: Array<{ leadId: number; leadName: string; error: string }> = []
 
-    for (const lead of leads) {
-      try {
-        const isVerified = await client.workflow.execute(verifyEmailWorkflow, {
-          taskQueue: 'myQueue',
-          workflowId: `verify-email-${lead.id}-${Date.now()}`,
-          args: [lead.email],
-        })
+    try {
+      for (const lead of leads) {
+        try {
+          const verification = await client.workflow.execute(verifyEmailWorkflow, {
+            taskQueue: 'myQueue',
+            // Stable id: one verification per lead at a time. Re-running later is
+            // still allowed (default reuse policy), but a duplicate click while a
+            // run is in flight fails fast instead of spawning a second workflow.
+            workflowId: `verify-email-${lead.id}`,
+            args: [lead.email],
+            // Hard backstop so a stuck provider can never hang the HTTP request.
+            workflowExecutionTimeout: '30 seconds',
+          })
 
-        await prisma.lead.update({
-          where: { id: lead.id },
-          data: { emailVerified: Boolean(isVerified) },
-        })
+          // `unknown` means the provider could not decide, which is not the same
+          // as "invalid" — persist null so the UI shows it as unverified.
+          const emailVerified =
+            verification.status === 'valid' ? true : verification.status === 'invalid' ? false : null
 
-        results.push({ leadId: lead.id, emailVerified: isVerified })
-        verifiedCount += 1
-      } catch (error) {
-        errors.push({
-          leadId: lead.id,
-          leadName: `${lead.firstName} ${lead.lastName}`.trim(),
-          error: error instanceof Error ? error.message : 'Unknown error',
-        })
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: { emailVerified },
+          })
+
+          results.push({
+            leadId: lead.id,
+            emailVerified,
+            status: verification.status,
+            reason: verification.reason,
+          })
+          if (verification.status !== 'unknown') {
+            verifiedCount += 1
+          }
+        } catch (error) {
+          // One bad lead must not abort the batch; report it and keep going.
+          console.error(`Email verification failed for lead ${lead.id}:`, error)
+          errors.push({
+            leadId: lead.id,
+            leadName: `${lead.firstName} ${lead.lastName}`.trim(),
+            error: error instanceof Error ? error.message : 'Unknown error',
+          })
+        }
       }
+    } finally {
+      await connection.close()
     }
-
-    await connection.close()
 
     res.json({ success: true, verifiedCount, results, errors })
   } catch (error) {
