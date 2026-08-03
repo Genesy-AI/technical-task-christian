@@ -18,4 +18,9 @@ export interface LeadsBulkImportOutput {
     lead: any
     error: string
   }>
+  /** Non-blocking issues (e.g. an invalid country code was dropped); the lead still imported. */
+  warnings: Array<{
+    lead: unknown
+    warning: string
+  }>
 }

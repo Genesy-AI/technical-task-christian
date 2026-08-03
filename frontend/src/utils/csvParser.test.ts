@@ -66,7 +66,59 @@ John,Doe,john.doe@example.com,Developer,US,Tech Corp`
       companyName: 'Tech Corp',
       isValid: true,
       errors: [],
+      warnings: [],
       rowIndex: 2,
+    })
+  })
+
+  it('should drop invalid country codes as a warning without invalidating the lead', () => {
+    const csv = `firstName,lastName,email,countryCode
+John,Doe,john@example.com,XXX
+Jane,Smith,jane@example.com,12
+Bob,Brown,bob@example.com,xx
+Ann,Grey,ann@example.com,ZZ`
+
+    const result = parseCsv(csv)
+
+    expect(result).toHaveLength(4)
+    result.forEach((lead) => {
+      expect(lead.countryCode).toBeUndefined()
+      expect(lead.isValid).toBe(true)
+      expect(lead.errors).toEqual([])
+      expect(lead.warnings).toHaveLength(1)
+    })
+    expect(result[0].warnings[0]).toBe('Invalid country code "XXX" was ignored')
+    expect(result[3].warnings[0]).toBe('Invalid country code "ZZ" was ignored')
+  })
+
+  it('should upper-case valid country codes and accept exotic ones', () => {
+    const csv = `firstName,lastName,email,countryCode
+John,Doe,john@example.com,es
+Jane,Smith,jane@example.com,TV
+Bob,Brown,bob@example.com,BT
+Ann,Grey,ann@example.com,KP`
+
+    const result = parseCsv(csv)
+
+    expect(result.map((lead) => lead.countryCode)).toEqual(['ES', 'TV', 'BT', 'KP'])
+    result.forEach((lead) => {
+      expect(lead.isValid).toBe(true)
+      expect(lead.warnings).toEqual([])
+    })
+  })
+
+  it('should not warn when the country code is missing', () => {
+    const csv = `firstName,lastName,email,countryCode
+John,Doe,john@example.com,
+Jane,Smith,jane@example.com,   `
+
+    const result = parseCsv(csv)
+
+    expect(result).toHaveLength(2)
+    result.forEach((lead) => {
+      expect(lead.countryCode).toBeUndefined()
+      expect(lead.warnings).toEqual([])
+      expect(lead.isValid).toBe(true)
     })
   })
 
