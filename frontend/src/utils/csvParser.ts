@@ -7,9 +7,79 @@ export interface CsvLead {
   jobTitle?: string
   countryCode?: string
   companyName?: string
+  phone?: string
+  yearsAtCompany?: number
+  linkedin?: string
   isValid: boolean
   errors: string[]
+  /** Non-blocking issues: the lead still imports (e.g. an unparseable tenure). */
+  warnings: string[]
   rowIndex: number
+}
+
+/**
+ * Maps normalized CSV headers onto lead fields.
+ *
+ * Real exports disagree on naming, so each field accepts several aliases: the
+ * provided sample files use `phoneNumber` and `yearsInRole`. Headers are
+ * normalized to lowercase letters only before lookup, so `Phone Number`,
+ * `phone_number` and `phoneNumber` all collapse to the same key.
+ */
+/** Lead fields that come off the CSV as plain strings. */
+type CsvStringField =
+  | 'firstName'
+  | 'lastName'
+  | 'email'
+  | 'jobTitle'
+  | 'countryCode'
+  | 'companyName'
+  | 'phone'
+  | 'linkedin'
+
+type CsvMappedField = CsvStringField | 'yearsAtCompany'
+
+const HEADER_ALIASES: Record<string, CsvMappedField> = {
+  firstname: 'firstName',
+  lastname: 'lastName',
+  email: 'email',
+  jobtitle: 'jobTitle',
+  countrycode: 'countryCode',
+  companyname: 'companyName',
+  phone: 'phone',
+  phonenumber: 'phone',
+  phoneno: 'phone',
+  telephone: 'phone',
+  mobile: 'phone',
+  yearsatcompany: 'yearsAtCompany',
+  yearsinrole: 'yearsAtCompany',
+  yearsincompany: 'yearsAtCompany',
+  tenure: 'yearsAtCompany',
+  linkedin: 'linkedin',
+  linkedinurl: 'linkedin',
+  linkedinprofile: 'linkedin',
+  linkedinprofileurl: 'linkedin',
+}
+
+/** Upper bound is a sanity check, mirroring the backend's own validation. */
+const MAX_YEARS_AT_COMPANY = 100
+
+interface ParsedYears {
+  value?: number
+  warning?: string
+}
+
+const parseYearsAtCompany = (raw: string): ParsedYears => {
+  if (!raw) {
+    return {}
+  }
+
+  const parsed = Number(raw)
+
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > MAX_YEARS_AT_COMPANY) {
+    return { warning: `Invalid years at company "${raw}" was ignored` }
+  }
+
+  return { value: parsed }
 }
 
 export const isValidEmail = (email: string): boolean => {
@@ -49,29 +119,32 @@ export const parseCsv = (content: string): CsvLead[] => {
     if (Object.values(row).every((value) => !value)) return
 
     const lead: Partial<CsvLead> = { rowIndex: index + 2 }
+    const warnings: string[] = []
 
     Object.entries(row).forEach(([header, value]) => {
       const normalizedHeader = header.toLowerCase().replace(/[^a-z]/g, '')
+      const field = HEADER_ALIASES[normalizedHeader]
       const trimmedValue = value?.trim() || ''
 
-      switch (normalizedHeader) {
-        case 'firstname':
-          lead.firstName = trimmedValue
-          break
-        case 'lastname':
-          lead.lastName = trimmedValue
-          break
+      if (!field) return
+
+      switch (field) {
+        // Required fields keep empty strings so the validation below can report them.
+        case 'firstName':
+        case 'lastName':
         case 'email':
-          lead.email = trimmedValue
+          lead[field] = trimmedValue
           break
-        case 'jobtitle':
-          lead.jobTitle = trimmedValue || undefined
+        case 'yearsAtCompany': {
+          const { value: years, warning } = parseYearsAtCompany(trimmedValue)
+          lead.yearsAtCompany = years
+          if (warning) {
+            warnings.push(warning)
+          }
           break
-        case 'countrycode':
-          lead.countryCode = trimmedValue || undefined
-          break
-        case 'companyname':
-          lead.companyName = trimmedValue || undefined
+        }
+        default:
+          lead[field] = trimmedValue || undefined
           break
       }
     })
@@ -96,6 +169,7 @@ export const parseCsv = (content: string): CsvLead[] => {
       email: lead.email || '',
       isValid: errors.length === 0,
       errors,
+      warnings,
     } as CsvLead)
   })
 

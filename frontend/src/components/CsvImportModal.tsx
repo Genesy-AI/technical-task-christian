@@ -100,6 +100,10 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
         jobTitle: lead.jobTitle || undefined,
         countryCode: lead.countryCode || undefined,
         companyName: lead.companyName || undefined,
+        phone: lead.phone || undefined,
+        // `0` is a valid tenure, so only `undefined`/`null` may be dropped here.
+        yearsAtCompany: lead.yearsAtCompany ?? undefined,
+        linkedin: lead.linkedin || undefined,
       }))
 
       return api.leads.bulkImport({ leads: leadsToImport })
@@ -116,6 +120,19 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
       }
 
       toast.success(message)
+
+      // Dropped-but-non-fatal values (e.g. an unparseable tenure) must not be silent.
+      if (data.warnings.length > 0) {
+        toast(
+          `${data.warnings.length} value${data.warnings.length === 1 ? '' : 's'} were ignored: ${[
+            ...new Set(data.warnings.map((entry) => entry.warning)),
+          ]
+            .slice(0, 3)
+            .join('; ')}`,
+          { duration: 6000 }
+        )
+      }
+
       onClose()
       setCsvData([])
     },
@@ -238,7 +255,10 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
                   </p>
                   <p className="text-sm text-gray-500">
                     CSV must include: firstName, lastName, email (required). Optional: jobTitle, countryCode,
-                    companyName
+                    companyName, phone, yearsAtCompany, linkedin
+                  </p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    Common aliases are recognised too, e.g. phoneNumber and yearsInRole.
                   </p>
                 </div>
               )}
@@ -287,6 +307,9 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                         Errors
                       </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Warnings
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -310,6 +333,9 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
                         <td className="px-3 py-2 text-sm text-gray-900">{lead.email || '-'}</td>
                         <td className="px-3 py-2 text-sm text-gray-900">{lead.companyName || '-'}</td>
                         <td className="px-3 py-2 text-sm text-red-600">{lead.errors.join(', ') || '-'}</td>
+                        <td className="px-3 py-2 text-sm text-amber-600">
+                          {lead.warnings.join(', ') || '-'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

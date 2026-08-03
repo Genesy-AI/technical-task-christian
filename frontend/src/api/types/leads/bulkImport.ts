@@ -6,6 +6,9 @@ export interface LeadsBulkImportInput {
     jobTitle?: string
     countryCode?: string
     companyName?: string
+    phone?: string
+    yearsAtCompany?: number
+    linkedin?: string
   }[]
 }
 
@@ -17,5 +20,10 @@ export interface LeadsBulkImportOutput {
   errors: Array<{
     lead: any
     error: string
+  }>
+  /** Non-blocking issues (e.g. an unparseable tenure was dropped); the lead still imported. */
+  warnings: Array<{
+    lead: unknown
+    warning: string
   }>
 }

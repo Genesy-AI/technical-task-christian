@@ -1,8 +1,9 @@
-import { FC, useState, useEffect, useCallback, useRef } from 'react'
+import { FC, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { LEAD_FIELD_GROUPS, TEMPLATABLE_LEAD_FIELDS } from '../utils/leadFields'
 
 interface MessageTemplateModalProps {
   isOpen: boolean
@@ -18,6 +19,7 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
   selectedLeadsCount,
 }) => {
   const [template, setTemplate] = useState('')
+  const [fieldSearch, setFieldSearch] = useState('')
   const [generationResult, setGenerationResult] = useState<{
     success: boolean
     generatedCount: number
@@ -74,6 +76,7 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
     if (!generateMessagesMutation.isPending) {
       onClose()
       setTemplate('')
+      setFieldSearch('')
       setGenerationResult(null)
     }
   }, [generateMessagesMutation.isPending, onClose])
@@ -106,7 +109,25 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
     }
   }, [isOpen, handleClose])
 
-  const availableFields = ['firstName', 'lastName', 'email', 'jobTitle', 'companyName', 'countryCode']
+  /**
+   * Fields come from the shared registry and are grouped + filterable, so the
+   * picker stays usable as the list grows instead of becoming one long chip row.
+   */
+  const visibleFieldGroups = useMemo(() => {
+    const query = fieldSearch.trim().toLowerCase()
+
+    const matches = TEMPLATABLE_LEAD_FIELDS.filter(
+      (field) =>
+        !query ||
+        field.label.toLowerCase().includes(query) ||
+        field.key.toLowerCase().includes(query)
+    )
+
+    return LEAD_FIELD_GROUPS.map((group) => ({
+      group,
+      fields: matches.filter((field) => field.group === group),
+    })).filter((entry) => entry.fields.length > 0)
+  }, [fieldSearch])
 
   const insertField = (field: string) => {
     if (textareaRef.current) {
@@ -156,18 +177,45 @@ export const MessageTemplateModal: FC<MessageTemplateModalProps> = ({
                 Message Template
               </label>
               <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  <span className="text-sm text-gray-600">Insert field:</span>
-                  {availableFields.map((field) => (
-                    <button
-                      key={field}
-                      type="button"
-                      onClick={() => insertField(field)}
-                      className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded hover:bg-blue-200 transition-colors"
-                    >
-                      {`{${field}}`}
-                    </button>
-                  ))}
+                <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <span className="text-sm text-gray-600">Insert field</span>
+                    <input
+                      type="text"
+                      value={fieldSearch}
+                      onChange={(e) => setFieldSearch(e.target.value)}
+                      placeholder="Search fields..."
+                      aria-label="Search fields"
+                      className="w-40 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div className="max-h-40 overflow-y-auto space-y-2">
+                    {visibleFieldGroups.map(({ group, fields }) => (
+                      <div key={group}>
+                        <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                          {group}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {fields.map((field) => (
+                            <button
+                              key={field.key}
+                              type="button"
+                              onClick={() => insertField(field.key)}
+                              title={`Insert {${field.key}}`}
+                              className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded hover:bg-blue-200 transition-colors"
+                            >
+                              {field.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+
+                    {visibleFieldGroups.length === 0 && (
+                      <div className="text-xs text-gray-500">No fields match "{fieldSearch}"</div>
+                    )}
+                  </div>
                 </div>
                 <textarea
                   ref={textareaRef}
